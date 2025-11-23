@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../AuthContext'
+import ConfirmationModal from '../components/ConfirmationModal'
 
 function Machines() {
     const { token } = useAuth()
@@ -19,6 +20,7 @@ function Machines() {
     // Inline editing state
     const [editingId, setEditingId] = useState(null)
     const [editForm, setEditForm] = useState({})
+    const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: null, name: null })
 
     const fetchMachines = useCallback(async () => {
         setLoading(true)
@@ -133,11 +135,19 @@ function Machines() {
         }
     }
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this machine?')) return
+    const handleDeleteClick = (machine) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            id: machine.id,
+            name: machine.name
+        })
+    }
+
+    const confirmDelete = async () => {
+        if (!deleteConfirmation.isOpen) return
 
         try {
-            const response = await fetch(`http://localhost:8000/machines/${id}`, {
+            const response = await fetch(`http://localhost:8000/machines/${deleteConfirmation.id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -146,6 +156,7 @@ function Machines() {
 
             if (response.ok) {
                 fetchMachines()
+                setDeleteConfirmation({ isOpen: false, id: null, name: null })
             } else {
                 throw new Error('Failed to delete machine')
             }
@@ -311,7 +322,7 @@ function Machines() {
                                             </td>
                                             <td>
                                                 <button onClick={() => startEditing(machine)} className="action-btn btn-edit">Edit</button>
-                                                <button onClick={() => handleDelete(machine.id)} className="action-btn btn-delete">Delete</button>
+                                                <button onClick={() => handleDeleteClick(machine)} className="action-btn btn-delete">Delete</button>
                                             </td>
                                         </>
                                     )}
@@ -321,6 +332,17 @@ function Machines() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: null })}
+                onConfirm={confirmDelete}
+                title="Delete Machine"
+                message={`Are you sure you want to delete ${deleteConfirmation.name}?`}
+                confirmText="Delete"
+                isDanger={true}
+            />
         </div>
     )
 }

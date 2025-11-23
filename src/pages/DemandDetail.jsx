@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+import ConfirmationModal from '../components/ConfirmationModal'
 
 function DemandDetail() {
     const { id } = useParams()
@@ -13,6 +14,9 @@ function DemandDetail() {
     const [activeTab, setActiveTab] = useState('details');
     const [plan, setPlan] = useState(null);
     const [planLoading, setPlanLoading] = useState(false);
+    const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: null })
+    const [isEditing, setIsEditing] = useState(false)
+    const [editForm, setEditForm] = useState({})
 
     useEffect(() => {
         if (token && id) {
@@ -105,11 +109,18 @@ function DemandDetail() {
         }
     }
 
-    const handleDelete = async () => {
-        if (!window.confirm('Are you sure you want to delete this demand entry?')) return
+    const handleDeleteClick = () => {
+        setDeleteConfirmation({
+            isOpen: true,
+            id: id
+        })
+    }
+
+    const confirmDelete = async () => {
+        if (!deleteConfirmation.isOpen) return
 
         try {
-            const response = await fetch(`http://localhost:8000/demand/${id}`, {
+            const response = await fetch(`http://localhost:8000/demand/${deleteConfirmation.id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -118,6 +129,7 @@ function DemandDetail() {
 
             if (response.ok) {
                 navigate('/demand')
+                setDeleteConfirmation({ isOpen: false, id: null })
             } else {
                 throw new Error('Failed to delete demand')
             }
@@ -157,7 +169,7 @@ function DemandDetail() {
                     {!isEditing ? (
                         <>
                             <button onClick={() => setIsEditing(true)} className="action-btn btn-edit">Edit</button>
-                            <button onClick={handleDelete} className="action-btn btn-delete">Delete</button>
+                            <button onClick={handleDeleteClick} className="action-btn btn-delete">Delete</button>
                         </>
                     ) : (
                         <>
@@ -169,7 +181,7 @@ function DemandDetail() {
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #e5e7eb', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #e5e7eb', marginBottom: '1rem', marginTop: '1rem' }}>
                 <button
                     onClick={() => setActiveTab('details')}
                     style={{
@@ -304,6 +316,7 @@ function DemandDetail() {
                                         <table>
                                             <thead>
                                                 <tr>
+                                                    <th>Parent Product</th>
                                                     <th>Product</th>
                                                     <th>Quantity</th>
                                                     <th>Machine</th>
@@ -315,6 +328,13 @@ function DemandDetail() {
                                             <tbody>
                                                 {plan.production_orders.map((order, index) => (
                                                     <tr key={index} style={order.is_delayed ? { backgroundColor: '#fee2e2' } : {}}>
+                                                        <td style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                                                            {order.parent_product_name ? (
+                                                                <span>{order.parent_product_name}</span>
+                                                            ) : (
+                                                                <span style={{ fontStyle: 'italic' }}>-</span>
+                                                            )}
+                                                        </td>
                                                         <td style={{ fontWeight: 500 }}>{order.product_name}</td>
                                                         <td>{order.quantity}</td>
                                                         <td>{order.required_machine_name || '-'}</td>
@@ -382,6 +402,16 @@ function DemandDetail() {
                     )}
                 </div>
             )}
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null })}
+                onConfirm={confirmDelete}
+                title="Delete Demand"
+                message="Are you sure you want to delete this demand entry?"
+                confirmText="Delete"
+                isDanger={true}
+            />
         </div>
     )
 }

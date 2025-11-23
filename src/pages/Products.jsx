@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+import ConfirmationModal from '../components/ConfirmationModal'
 
 function Products() {
     const { token } = useAuth()
@@ -20,6 +21,7 @@ function Products() {
     // Inline editing state
     const [editingId, setEditingId] = useState(null)
     const [editForm, setEditForm] = useState({})
+    const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: null, name: null })
 
     const fetchProducts = useCallback(async () => {
         setLoading(true)
@@ -132,11 +134,19 @@ function Products() {
         }
     }
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this product?')) return
+    const handleDeleteClick = (product) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            id: product.id,
+            name: product.name
+        })
+    }
+
+    const confirmDelete = async () => {
+        if (!deleteConfirmation.isOpen) return
 
         try {
-            const response = await fetch(`http://localhost:8000/products/${id}`, {
+            const response = await fetch(`http://localhost:8000/products/${deleteConfirmation.id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -145,6 +155,7 @@ function Products() {
 
             if (response.ok) {
                 fetchProducts()
+                setDeleteConfirmation({ isOpen: false, id: null, name: null })
             } else {
                 throw new Error('Failed to delete product')
             }
@@ -311,7 +322,7 @@ function Products() {
                                                     View
                                                 </Link>
                                                 <button onClick={() => startEditing(product)} className="action-btn btn-edit">Edit</button>
-                                                <button onClick={() => handleDelete(product.id)} className="action-btn btn-delete">Delete</button>
+                                                <button onClick={() => handleDeleteClick(product)} className="action-btn btn-delete">Delete</button>
                                             </td>
                                         </>
                                     )}
@@ -321,6 +332,17 @@ function Products() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: null })}
+                onConfirm={confirmDelete}
+                title="Delete Product"
+                message={`Are you sure you want to delete ${deleteConfirmation.name}?`}
+                confirmText="Delete"
+                isDanger={true}
+            />
         </div>
     )
 }

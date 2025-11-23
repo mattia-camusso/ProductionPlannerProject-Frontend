@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../AuthContext'
 import { Link } from 'react-router-dom'
+import ConfirmationModal from '../components/ConfirmationModal'
 
 function Demand() {
     const { token } = useAuth()
@@ -20,6 +21,7 @@ function Demand() {
     // Inline editing state
     const [editingId, setEditingId] = useState(null)
     const [editForm, setEditForm] = useState({})
+    const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: null })
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -146,11 +148,18 @@ function Demand() {
         }
     }
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this demand entry?')) return
+    const handleDeleteClick = (id) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            id: id
+        })
+    }
+
+    const confirmDelete = async () => {
+        if (!deleteConfirmation.isOpen) return
 
         try {
-            const response = await fetch(`http://localhost:8000/demand/${id}`, {
+            const response = await fetch(`http://localhost:8000/demand/${deleteConfirmation.id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -159,6 +168,7 @@ function Demand() {
 
             if (response.ok) {
                 fetchData()
+                setDeleteConfirmation({ isOpen: false, id: null })
             } else {
                 throw new Error('Failed to delete demand')
             }
@@ -333,7 +343,7 @@ function Demand() {
                                                         View
                                                     </Link>
                                                     <button onClick={() => startEditing(demand)} className="action-btn btn-edit">Edit</button>
-                                                    <button onClick={() => handleDelete(demand.id)} className="action-btn btn-delete">Delete</button>
+                                                    <button onClick={() => handleDeleteClick(demand.id)} className="action-btn btn-delete">Delete</button>
                                                 </td>
                                             </>
                                         )}
@@ -344,6 +354,17 @@ function Demand() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null })}
+                onConfirm={confirmDelete}
+                title="Delete Demand"
+                message="Are you sure you want to delete this demand entry?"
+                confirmText="Delete"
+                isDanger={true}
+            />
         </div>
     )
 }

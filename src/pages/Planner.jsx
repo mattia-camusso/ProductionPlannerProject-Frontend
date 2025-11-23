@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../AuthContext'
 
 function Planner() {
@@ -7,6 +7,45 @@ function Planner() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [selectedDemandId, setSelectedDemandId] = useState('full');
+    const [lastGenerated, setLastGenerated] = useState(null);
+    const [activeTab, setActiveTab] = useState('production'); // NEW: Tab state
+
+    // Fetch current saved plan on component mount
+    useEffect(() => {
+        fetchCurrentPlan();
+    }, [token]);
+
+    const fetchCurrentPlan = async () => {
+        if (!token) return;
+
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await fetch('http://localhost:8000/planner/current', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch current plan');
+            }
+
+            const data = await response.json();
+            setPlans(data);
+            setLastGenerated(new Date());
+
+            // Default to Full Plan if data exists
+            if (data.length > 0) {
+                setSelectedDemandId('full');
+            }
+        } catch (err) {
+            console.error("Error fetching current plan:", err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const generatePlan = async () => {
         setLoading(true);
@@ -27,6 +66,7 @@ function Planner() {
 
             const data = await response.json();
             setPlans(data);
+            setLastGenerated(new Date());
             // Default to Full Plan if data exists
             if (data.length > 0) {
                 setSelectedDemandId('full');
@@ -46,7 +86,9 @@ function Planner() {
 
     const formatDateTime = (dateString) => {
         if (!dateString) return '-';
-        return new Date(dateString).toLocaleString();
+        let stringDate = new Date(dateString).toLocaleString();
+        stringDate = stringDate.substring(0, stringDate.length - 3);
+        return stringDate;
     };
 
     // Calculate Full Plan
@@ -66,13 +108,20 @@ function Planner() {
         <div className="page-container">
             <div className="header-section">
                 <h1>Production Planner</h1>
-                <button
-                    className="btn-primary"
-                    onClick={generatePlan}
-                    disabled={loading}
-                >
-                    {loading ? 'Generating...' : 'Generate Plan'}
-                </button>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    {lastGenerated && (
+                        <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                            Last generated: {lastGenerated.toLocaleString()}
+                        </span>
+                    )}
+                    <button
+                        className="btn-primary"
+                        onClick={generatePlan}
+                        disabled={loading}
+                    >
+                        {loading ? 'Generating...' : 'Generate Plan'}
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -173,91 +222,144 @@ function Planner() {
                     <div style={{ flex: 1 }}>
                         {selectedPlan ? (
                             <>
-                                <div className="detail-card" style={{ marginBottom: '2rem' }}>
-                                    <h2 style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+                                {/* Tabs - Similar to ProductDetail */}
+                                <div className="tabs" style={{ marginBottom: '1.5rem' }}>
+                                    <button
+                                        className={`tab-btn ${activeTab === 'production' ? 'active' : ''}`}
+                                        onClick={() => setActiveTab('production')}
+                                    >
                                         Production Orders
-                                    </h2>
-                                    {selectedPlan.production_orders.length > 0 ? (
-                                        <div className="table-container">
-                                            <table>
-                                                <thead>
-                                                    <tr>
-                                                        <th>Product</th>
-                                                        <th>Quantity</th>
-                                                        <th>Machine</th>
-                                                        <th>Start Date</th>
-                                                        <th>End Date</th>
-                                                        <th>Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {selectedPlan.production_orders.map((order, index) => (
-                                                        <tr key={index} style={order.is_delayed ? { backgroundColor: '#fee2e2' } : {}}>
-                                                            <td style={{ fontWeight: 500 }}>{order.product_name}</td>
-                                                            <td>{order.quantity}</td>
-                                                            <td>{order.required_machine_name || '-'}</td>
-                                                            <td>{formatDateTime(order.start_date)}</td>
-                                                            <td>{formatDateTime(order.end_date)}</td>
-                                                            <td>
-                                                                {order.is_delayed ? (
-                                                                    <span style={{ color: '#dc2626', fontWeight: 'bold' }}>
-                                                                        Delayed ({order.delay_days} days)
-                                                                    </span>
-                                                                ) : (
-                                                                    <span style={{ color: '#059669' }}>On Time</span>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    ) : (
-                                        <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No production orders required for this demand.</p>
-                                    )}
+                                        <span style={{
+                                            marginLeft: '0.5rem',
+                                            backgroundColor: activeTab === 'production' ? '#2563eb' : '#d1d5db',
+                                            color: activeTab === 'production' ? '#fff' : '#4b5563',
+                                            borderRadius: '9999px',
+                                            padding: '0.125rem 0.5rem',
+                                            fontSize: '0.75rem',
+                                            fontWeight: '600'
+                                        }}>
+                                            {selectedPlan.production_orders.length}
+                                        </span>
+                                    </button>
+                                    <button
+                                        className={`tab-btn ${activeTab === 'purchase' ? 'active' : ''}`}
+                                        onClick={() => setActiveTab('purchase')}
+                                    >
+                                        Purchase Orders
+                                        <span style={{
+                                            marginLeft: '0.5rem',
+                                            backgroundColor: activeTab === 'purchase' ? '#2563eb' : '#d1d5db',
+                                            color: activeTab === 'purchase' ? '#fff' : '#4b5563',
+                                            borderRadius: '9999px',
+                                            padding: '0.125rem 0.5rem',
+                                            fontSize: '0.75rem',
+                                            fontWeight: '600'
+                                        }}>
+                                            {selectedPlan.purchase_orders.length}
+                                        </span>
+                                    </button>
                                 </div>
 
+                                {/* Tab Content */}
                                 <div className="detail-card">
-                                    <h2 style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-                                        Purchase Orders
-                                    </h2>
-                                    {selectedPlan.purchase_orders.length > 0 ? (
-                                        <div className="table-container">
-                                            <table>
-                                                <thead>
-                                                    <tr>
-                                                        <th>Product</th>
-                                                        <th>Quantity</th>
-                                                        <th>Lead Time</th>
-                                                        <th>Order Date</th>
-                                                        <th>Available Date</th>
-                                                        <th>Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {selectedPlan.purchase_orders.map((order, index) => (
-                                                        <tr key={index} style={order.is_delayed ? { backgroundColor: '#fee2e2' } : {}}>
-                                                            <td style={{ fontWeight: 500 }}>{order.product_name}</td>
-                                                            <td>{order.quantity}</td>
-                                                            <td>{order.lead_time} days</td>
-                                                            <td style={{ color: '#d97706', fontWeight: 500 }}>{formatDate(order.order_date)}</td>
-                                                            <td>{formatDate(order.need_date)}</td>
-                                                            <td>
-                                                                {order.is_delayed ? (
-                                                                    <span style={{ color: '#dc2626', fontWeight: 'bold' }}>
-                                                                        Delayed ({order.delay_days} days)
-                                                                    </span>
-                                                                ) : (
-                                                                    <span style={{ color: '#059669' }}>On Time</span>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                    {activeTab === 'production' ? (
+                                        <>
+                                            <h2 style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+                                                Production Orders
+                                            </h2>
+                                            {selectedPlan.production_orders.length > 0 ? (
+                                                <div className="table-container">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Parent Product</th>
+                                                                <th>Product</th>
+                                                                <th>Quantity</th>
+                                                                <th>Machine</th>
+                                                                <th>Start Date</th>
+                                                                <th>End Date</th>
+                                                                <th>Duration</th>
+                                                                <th>Status</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {selectedPlan.production_orders.map((order, index) => (
+                                                                <tr key={index} style={order.is_delayed ? { backgroundColor: '#fee2e2' } : {}}>
+                                                                    <td style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                                                                        {order.parent_product_name ? (
+                                                                            <span>{order.parent_product_name}</span>
+                                                                        ) : (
+                                                                            <span style={{ fontStyle: 'italic' }}>-</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td style={{ fontWeight: 500 }}>{order.product_name}</td>
+                                                                    <td>{order.quantity}</td>
+                                                                    <td>{order.required_machine_name || '-'}</td>
+                                                                    <td>{formatDateTime(order.start_date)}</td>
+                                                                    <td>{formatDateTime(order.end_date)}</td>
+                                                                    <td style={{ fontWeight: 'bold', color: '#3b82f6' }}>{order.duration_days}</td>
+                                                                    <td>
+                                                                        {order.is_delayed ? (
+                                                                            <span style={{ color: '#dc2626', fontWeight: 'bold' }}>
+                                                                                Delayed ({order.delay_days} days)
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span style={{ color: '#059669' }}>On Time</span>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No production orders required for this demand.</p>
+                                            )}
+                                        </>
                                     ) : (
-                                        <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No purchase orders required for this demand.</p>
+                                        <>
+                                            <h2 style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+                                                Purchase Orders
+                                            </h2>
+                                            {selectedPlan.purchase_orders.length > 0 ? (
+                                                <div className="table-container">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Product</th>
+                                                                <th>Quantity</th>
+                                                                <th>Lead Time</th>
+                                                                <th>Order Date</th>
+                                                                <th>Available Date</th>
+                                                                <th>Status</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {selectedPlan.purchase_orders.map((order, index) => (
+                                                                <tr key={index} style={order.is_delayed ? { backgroundColor: '#fee2e2' } : {}}>
+                                                                    <td style={{ fontWeight: 500 }}>{order.product_name}</td>
+                                                                    <td>{order.quantity}</td>
+                                                                    <td>{order.lead_time} days</td>
+                                                                    <td style={{ color: '#d97706', fontWeight: 500 }}>{formatDate(order.order_date)}</td>
+                                                                    <td>{formatDate(order.need_date)}</td>
+                                                                    <td>
+                                                                        {order.is_delayed ? (
+                                                                            <span style={{ color: '#dc2626', fontWeight: 'bold' }}>
+                                                                                Delayed ({order.delay_days} days)
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span style={{ color: '#059669' }}>On Time</span>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No purchase orders required for this demand.</p>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </>

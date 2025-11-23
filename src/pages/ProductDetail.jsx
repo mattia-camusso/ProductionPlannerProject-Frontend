@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
+import TreeView from '../components/TreeView'
+import ConfirmationModal from '../components/ConfirmationModal'
 
 function ProductDetail() {
     const { id } = useParams()
@@ -15,17 +17,21 @@ function ProductDetail() {
 
     // BOM state
     const [bomEntries, setBomEntries] = useState([])
+    const [bomTree, setBomTree] = useState(null)  // Tree structure
     const [allProducts, setAllProducts] = useState([])
     const [newBomEntry, setNewBomEntry] = useState({ component_product_id: '', quantity: '' })
     const [editingBomId, setEditingBomId] = useState(null)
     const [editingBomQuantity, setEditingBomQuantity] = useState('')
+    const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, type: null, id: null, name: null }) // Unified delete state
 
     // BOP state
     const [bopEntries, setBopEntries] = useState([])
     const [allMachines, setAllMachines] = useState([])
-    const [newBopEntry, setNewBopEntry] = useState({ machine_id: '', operation_time: '' })
+    const [machineClasses, setMachineClasses] = useState([])
+    const [newBopEntry, setNewBopEntry] = useState({ machine_class: '', operation_time: '' })
     const [editingBopId, setEditingBopId] = useState(null)
     const [editingBopTime, setEditingBopTime] = useState('')
+    const [draggedBopId, setDraggedBopId] = useState(null)
 
     useEffect(() => {
         if (token) {
@@ -51,6 +57,7 @@ function ProductDetail() {
                 // Fetch BOM and BOP if it's a manufactured product
                 if (data.type === 'manufactured') {
                     fetchBOM()
+                    fetchBOMTree()  // NEW: Also fetch tree structure
                     fetchBOP()
                 }
             } else {
@@ -89,6 +96,9 @@ function ProductDetail() {
             if (response.ok) {
                 const data = await response.json()
                 setAllMachines(data)
+                // Extract unique machine classes
+                const classes = [...new Set(data.map(m => m.machine_class).filter(Boolean))]
+                setMachineClasses(classes)
             }
         } catch (err) {
             console.error('Failed to fetch machines:', err)
@@ -108,6 +118,22 @@ function ProductDetail() {
             }
         } catch (err) {
             console.error('Failed to fetch BOM:', err)
+        }
+    }
+
+    const fetchBOMTree = async () => {
+        try {
+            const response = await fetch(`http://localhost:8000/bom/products/${id}/bom/tree`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            if (response.ok) {
+                const data = await response.json()
+                setBomTree(data)
+            }
+        } catch (err) {
+            console.error('Failed to fetch BOM tree:', err)
         }
     }
 
@@ -146,6 +172,7 @@ function ProductDetail() {
 
             if (response.ok) {
                 fetchBOM()
+                fetchBOMTree() // Refresh tree view
                 setNewBomEntry({ component_product_id: '', quantity: '' })
             } else {
                 const errorData = await response.json()
@@ -171,6 +198,7 @@ function ProductDetail() {
 
             if (response.ok) {
                 fetchBOM()
+                fetchBOMTree() // Refresh tree view
                 setEditingBomId(null)
                 setEditingBomQuantity('')
             } else {
@@ -181,11 +209,39 @@ function ProductDetail() {
         }
     }
 
-    const handleDeleteBomEntry = async (bomId) => {
-        if (!window.confirm('Remove this component from the BOM?')) return
+    const handleDeleteBomClick = (bomId, componentName) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            type: 'bom',
+            id: bomId,
+            name: componentName,
+            title: 'Confirm Removal',
+            message: `Are you sure you want to remove ${componentName} from the Bill of Materials?`
+        })
+    }
+
+    const confirmDelete = async () => {
+        if (!deleteConfirmation.isOpen) return
 
         try {
-            const response = await fetch(`http://localhost:8000/bom/${bomId}`, {
+            let url = ''
+            let successCallback = null
+
+            if (deleteConfirmation.type === 'bom') {
+                url = `http://localhost:8000/bom/${deleteConfirmation.id}`
+                successCallback = () => {
+                    fetchBOM()
+                    fetchBOMTree()
+                }
+            } else if (deleteConfirmation.type === 'bop') {
+                url = `http://localhost:8000/bop/${deleteConfirmation.id}`
+                successCallback = fetchBOP
+            } else if (deleteConfirmation.type === 'product') {
+                url = `http://localhost:8000/products/${deleteConfirmation.id}`
+                successCallback = () => navigate('/products')
+            }
+
+            const response = await fetch(url, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -193,9 +249,10 @@ function ProductDetail() {
             })
 
             if (response.ok) {
-                fetchBOM()
+                if (successCallback) successCallback()
+                setDeleteConfirmation({ isOpen: false, type: null, id: null, name: null })
             } else {
-                throw new Error('Failed to delete BOM entry')
+                throw new Error('Failed to delete item')
             }
         } catch (err) {
             setError(err.message)
@@ -204,7 +261,7 @@ function ProductDetail() {
 
     // BOP Handlers
     const handleAddBopEntry = async () => {
-        if (!newBopEntry.machine_id || !newBopEntry.operation_time) return
+        if (!newBopEntry.machine_class || !newBopEntry.operation_time) return
 
         try {
             const response = await fetch(`http://localhost:8000/bop/products/${id}/bop`, {
@@ -214,14 +271,14 @@ function ProductDetail() {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    machine_id: parseInt(newBopEntry.machine_id),
+                    machine_class: newBopEntry.machine_class,
                     operation_time: parseFloat(newBopEntry.operation_time)
                 })
             })
 
             if (response.ok) {
                 fetchBOP()
-                setNewBopEntry({ machine_id: '', operation_time: '' })
+                setNewBopEntry({ machine_class: '', operation_time: '' })
             } else {
                 const errorData = await response.json()
                 setError(errorData.detail || 'Failed to add BOP entry')
@@ -256,24 +313,78 @@ function ProductDetail() {
         }
     }
 
-    const handleDeleteBopEntry = async (bopId) => {
-        if (!window.confirm('Remove this operation from the BOP?')) return
+    const handleDeleteBopEntry = (bopId) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            type: 'bop',
+            id: bopId,
+            name: 'this operation',
+            title: 'Remove Operation',
+            message: 'Remove this operation from the BOP?'
+        })
+    }
 
+    // Drag and Drop Handlers for BOP Reordering
+    const handleDragStart = (e, bopId) => {
+        setDraggedBopId(bopId)
+        e.dataTransfer.effectAllowed = 'move'
+    }
+
+    const handleDragOver = (e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+    }
+
+    const handleDrop = async (e, targetBopId) => {
+        e.preventDefault()
+
+        if (!draggedBopId || draggedBopId === targetBopId) {
+            setDraggedBopId(null)
+            return
+        }
+
+        // Find positions
+        const draggedIndex = bopEntries.findIndex(b => b.id === draggedBopId)
+        const targetIndex = bopEntries.findIndex(b => b.id === targetBopId)
+
+        if (draggedIndex === -1 || targetIndex === -1) return
+
+        // Reorder array
+        const newBopEntries = [...bopEntries]
+        const [draggedItem] = newBopEntries.splice(draggedIndex, 1)
+        newBopEntries.splice(targetIndex, 0, draggedItem)
+
+        // Update operation_order for all entries
+        const reorderItems = newBopEntries.map((bop, index) => ({
+            bop_id: bop.id,
+            operation_order: index + 1
+        }))
+
+        // Optimistically update UI
+        setBopEntries(newBopEntries)
+        setDraggedBopId(null)
+
+        // Send update to backend
         try {
-            const response = await fetch(`http://localhost:8000/bop/${bopId}`, {
-                method: 'DELETE',
+            const response = await fetch(`http://localhost:8000/bop/products/${id}/bop/reorder`, {
+                method: 'POST',
                 headers: {
+                    'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                body: JSON.stringify(reorderItems)
             })
 
-            if (response.ok) {
-                fetchBOP()
-            } else {
-                throw new Error('Failed to delete BOP entry')
+            if (!response.ok) {
+                throw new Error('Failed to reorder operations')
             }
+
+            // Refresh to ensure consistency
+            await fetchBOP()
         } catch (err) {
             setError(err.message)
+            // Revert on error
+            fetchBOP()
         }
     }
 
@@ -308,25 +419,16 @@ function ProductDetail() {
         }
     }
 
-    const handleDelete = async () => {
-        if (!window.confirm('Are you sure you want to delete this product?')) return
-
-        try {
-            const response = await fetch(`http://localhost:8000/products/${id}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            })
-
-            if (response.ok) {
-                navigate('/products')
-            } else {
-                throw new Error('Failed to delete product')
-            }
-        } catch (err) {
-            setError(err.message)
-        }
+    const handleDeleteProduct = () => {
+        setDeleteConfirmation({
+            isOpen: true,
+            type: 'product',
+            id: product.id,
+            name: product.name,
+            title: 'Delete Product',
+            message: `Are you sure you want to delete ${product.name}?`,
+            isDanger: true
+        })
     }
 
     // Filter available products for BOM (exclude self and already added components)
@@ -335,9 +437,9 @@ function ProductDetail() {
         !bomEntries.some(bom => bom.component_product_id === p.id)
     )
 
-    // Filter available machines for BOP (exclude already added machines)
-    const availableMachines = allMachines.filter(m =>
-        !bopEntries.some(bop => bop.machine_id === m.id)
+    // Filter available machine classes for BOP (exclude already added classes)
+    const availableMachineClasses = machineClasses.filter(mc =>
+        !bopEntries.some(bop => bop.machine_class === mc)
     )
 
     if (loading) return <div className="page-container"><p>Loading...</p></div>
@@ -482,21 +584,37 @@ function ProductDetail() {
                         {activeTab === 'bom' ? (
                             <>
                                 <h2>Bill of Materials</h2>
-                                {bomEntries.length > 0 ? (
-                                    <table className="bom-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Component</th>
-                                                <th>Quantity</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {bomEntries.map(bom => (
-                                                <tr key={bom.id}>
-                                                    <td>{bom.component_product.name}</td>
-                                                    <td>
-                                                        {editingBomId === bom.id ? (
+
+                                {/* Unified Tree View with Editing */}
+                                {bomTree && bomTree.components && bomTree.components.length > 0 ? (
+                                    <div style={{ marginBottom: '2rem' }}>
+                                        <TreeView
+                                            data={bomTree.components}
+                                            getNodeId={(node) => `bom-${node.component_id}`}
+                                            getChildren={(node) => node.children || []}
+                                            renderNode={(node, level, hasChildren, isExpanded) => {
+                                                // Find corresponding BOM entry for first-level materials (for editing)
+                                                const bomEntry = level === 0
+                                                    ? bomEntries.find(b => b.component_product_id === node.component_id)
+                                                    : null;
+                                                const isEditing = bomEntry && editingBomId === bomEntry.id;
+
+                                                return (
+                                                    <div style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        padding: '8px 0',
+                                                        gap: '12px'
+                                                    }}>
+                                                        <span style={{
+                                                            fontWeight: level === 0 ? 'bold' : 'normal',
+                                                            flex: '1'
+                                                        }}>
+                                                            {node.component_name}
+                                                        </span>
+
+                                                        {/* Quantity - Editable for first level only */}
+                                                        {level === 0 && isEditing ? (
                                                             <input
                                                                 type="number"
                                                                 value={editingBomQuantity}
@@ -504,56 +622,107 @@ function ProductDetail() {
                                                                 className="inline-input"
                                                                 style={{ width: '100px' }}
                                                                 step="0.1"
+                                                                onClick={(e) => e.stopPropagation()}
                                                             />
                                                         ) : (
-                                                            bom.quantity
+                                                            <span style={{
+                                                                color: '#666',
+                                                                minWidth: '80px'
+                                                            }}>
+                                                                Qty: {node.quantity}
+                                                            </span>
                                                         )}
-                                                    </td>
-                                                    <td>
-                                                        {editingBomId === bom.id ? (
-                                                            <>
-                                                                <button
-                                                                    onClick={() => handleUpdateBomQuantity(bom.id)}
-                                                                    className="action-btn btn-save"
-                                                                >
-                                                                    Save
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => { setEditingBomId(null); setEditingBomQuantity('') }}
-                                                                    className="action-btn btn-cancel"
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                            </>
+
+                                                        <span style={{
+                                                            fontSize: '0.85rem',
+                                                            color: node.type === 'manufactured' ? '#2563eb' : '#059669',
+                                                            backgroundColor: node.type === 'manufactured' ? '#dbeafe' : '#d1fae5',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '4px',
+                                                            minWidth: '100px',
+                                                            textAlign: 'center'
+                                                        }}>
+                                                            {node.type}
+                                                        </span>
+
+                                                        {/* Actions - Only for first level */}
+                                                        {level === 0 && bomEntry ? (
+                                                            isEditing ? (
+                                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleUpdateBomQuantity(bomEntry.id);
+                                                                        }}
+                                                                        className="action-btn btn-save"
+                                                                        style={{ fontSize: '0.85rem' }}
+                                                                    >
+                                                                        Save
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setEditingBomId(null);
+                                                                            setEditingBomQuantity('');
+                                                                        }}
+                                                                        className="action-btn btn-cancel"
+                                                                        style={{ fontSize: '0.85rem' }}
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                    <Link
+                                                                        to={`/products/${node.component_id}`}
+                                                                        className="action-btn"
+                                                                        style={{ textDecoration: 'none', fontSize: '0.85rem' }}
+                                                                    >
+                                                                        View
+                                                                    </Link>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setEditingBomId(bomEntry.id);
+                                                                            setEditingBomQuantity(bomEntry.quantity);
+                                                                        }}
+                                                                        className="action-btn btn-edit"
+                                                                        style={{ fontSize: '0.85rem' }}
+                                                                    >
+                                                                        Edit
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            e.stopPropagation();
+                                                                            handleDeleteBomClick(bomEntry.id, node.component_name);
+                                                                        }}
+                                                                        className="action-btn btn-delete"
+                                                                        style={{ fontSize: '0.85rem' }}
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                </div>
+                                                            )
                                                         ) : (
-                                                            <>
-                                                                <Link to={`/products/${bom.component_product_id}`} className="action-btn" style={{ textDecoration: 'none', marginRight: '0.5rem', marginLeft: '0.5rem' }}>
-                                                                    View
-                                                                </Link>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setEditingBomId(bom.id)
-                                                                        setEditingBomQuantity(bom.quantity)
-                                                                    }}
-                                                                    className="action-btn btn-edit"
-                                                                >
-                                                                    Edit
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleDeleteBomEntry(bom.id)}
-                                                                    className="action-btn btn-delete"
-                                                                >
-                                                                    Remove
-                                                                </button>
-                                                            </>
+                                                            /* View link for nested materials */
+                                                            <Link
+                                                                to={`/products/${node.component_id}`}
+                                                                className="action-btn"
+                                                                style={{ textDecoration: 'none', fontSize: '0.85rem' }}
+                                                            >
+                                                                View
+                                                            </Link>
                                                         )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                                    </div>
+                                                );
+                                            }}
+                                        />
+                                    </div>
+                                ) : bomEntries.length > 0 ? (
+                                    <p style={{ color: '#6b7280', fontStyle: 'italic', marginBottom: '2rem' }}>Loading tree structure...</p>
                                 ) : (
-                                    <p style={{ color: '#6c757d', fontStyle: 'italic' }}>No components added yet</p>
+                                    <p style={{ color: '#6b7280', fontStyle: 'italic', marginBottom: '2rem' }}>No components added yet</p>
                                 )}
 
                                 {/* Add Component Form */}
@@ -599,19 +768,48 @@ function ProductDetail() {
                         ) : (
                             <>
                                 <h2>Bill of Operations</h2>
+                                <p style={{ color: '#6c757d', marginBottom: '1rem' }}>Drag rows to reorder operations</p>
                                 {bopEntries.length > 0 ? (
                                     <table className="bom-table">
                                         <thead>
                                             <tr>
-                                                <th>Machine</th>
+                                                <th style={{ width: '60px' }}>Order</th>
+                                                <th>Machine Class</th>
+                                                <th>Available Machines</th>
                                                 <th>Operation Time (hrs)</th>
                                                 <th>Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {bopEntries.map(bop => (
-                                                <tr key={bop.id}>
-                                                    <td>{bop.machine ? bop.machine.name : `Machine #${bop.machine_id}`}</td>
+                                            {bopEntries.map((bop, index) => (
+                                                <tr
+                                                    key={bop.id}
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, bop.id)}
+                                                    onDragOver={handleDragOver}
+                                                    onDrop={(e) => handleDrop(e, bop.id)}
+                                                    style={{
+                                                        cursor: 'move',
+                                                        opacity: draggedBopId === bop.id ? 0.5 : 1,
+                                                        backgroundColor: draggedBopId === bop.id ? '#f0f0f0' : 'transparent'
+                                                    }}
+                                                >
+                                                    <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#3b82f6' }}>
+                                                        <span style={{ fontSize: '1.2rem' }}>{bop.operation_order || index + 1}</span>
+                                                        {index < bopEntries.length - 1 && (
+                                                            <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>↓</div>
+                                                        )}
+                                                    </td>
+                                                    <td><strong>{bop.machine_class}</strong></td>
+                                                    <td>
+                                                        {bop.available_machines && bop.available_machines.length > 0 ? (
+                                                            <span style={{ fontSize: '0.9rem', color: '#6b7280' }}>
+                                                                {bop.available_machines.map(m => m.name).join(', ')}
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ fontSize: '0.9rem', color: '#ef4444' }}>No machines available</span>
+                                                        )}
+                                                    </td>
                                                     <td>
                                                         {editingBopId === bop.id ? (
                                                             <input
@@ -675,16 +873,16 @@ function ProductDetail() {
                                     <h3>Add Operation</h3>
                                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
                                         <div style={{ flex: 2 }}>
-                                            <label><strong>Machine:</strong></label>
+                                            <label><strong>Machine Class:</strong></label>
                                             <select
-                                                value={newBopEntry.machine_id}
-                                                onChange={(e) => setNewBopEntry({ ...newBopEntry, machine_id: e.target.value })}
+                                                value={newBopEntry.machine_class}
+                                                onChange={(e) => setNewBopEntry({ ...newBopEntry, machine_class: e.target.value })}
                                                 className="inline-select"
                                             >
-                                                <option value="">Select a machine...</option>
-                                                {availableMachines.map(machine => (
-                                                    <option key={machine.id} value={machine.id}>
-                                                        {machine.name}
+                                                <option value="">Select a machine class...</option>
+                                                {availableMachineClasses.map(mc => (
+                                                    <option key={mc} value={mc}>
+                                                        {mc} ({allMachines.filter(m => m.machine_class === mc).length} machines)
                                                     </option>
                                                 ))}
                                             </select>
@@ -703,7 +901,7 @@ function ProductDetail() {
                                         <button
                                             onClick={handleAddBopEntry}
                                             className="action-btn btn-add"
-                                            disabled={!newBopEntry.machine_id || !newBopEntry.operation_time}
+                                            disabled={!newBopEntry.machine_class || !newBopEntry.operation_time}
                                         >
                                             Add Operation
                                         </button>
@@ -741,7 +939,7 @@ function ProductDetail() {
                                     />
                                 </div>
                                 <div className="detail-row">
-                                    <label><strong>Lead Time (Days):</strong></label>
+                                    <label><strong>Lead Time:</strong></label>
                                     <input
                                         type="number"
                                         name="lead_time"
@@ -774,6 +972,16 @@ function ProductDetail() {
                     </div>
                 </div>
             )}
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, type: null, id: null, name: null })}
+                onConfirm={confirmDelete}
+                title={deleteConfirmation.title}
+                message={deleteConfirmation.message}
+                confirmText="Remove"
+                isDanger={true}
+            />
         </div>
     )
 }
