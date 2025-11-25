@@ -10,6 +10,7 @@ function Navbar() {
                 <Link to="/">Dashboard</Link>
             </div>
             <div className="navbar-menu">
+                <Link to="/dashboard" className="navbar-item">Dashboard</Link>
                 <Link to="/" className="navbar-item">Home</Link>
                 <Link to="/machines" className="navbar-item">Machines</Link>
                 <Link to="/products" className="navbar-item">Products</Link>

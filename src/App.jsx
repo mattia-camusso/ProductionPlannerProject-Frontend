@@ -10,6 +10,7 @@ import ProductDetail from './pages/ProductDetail'
 import Demand from './pages/Demand'
 import DemandDetail from './pages/DemandDetail'
 import Planner from './pages/Planner'
+import Dashboard from './pages/Dashboard'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth()
@@ -64,6 +65,11 @@ function App() {
           <Route path="/planner" element={
             <ProtectedRoute>
               <Planner />
+            </ProtectedRoute>
+          } />
+          <Route path="/dashboard" element={
+            <ProtectedRoute>
+              <Dashboard />
             </ProtectedRoute>
           } />
         </Routes>
